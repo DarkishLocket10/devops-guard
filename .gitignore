@@ -1,0 +1,17 @@
+﻿# .NET build output
+bin/
+obj/
+
+# VS / VS Code
+.vs/
+.vscode/*.log
+*.user
+*.suo
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# publish + temp
+artifacts/
+*/Properties/launchSettings.json
