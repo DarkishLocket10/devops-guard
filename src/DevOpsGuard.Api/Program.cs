@@ -75,7 +75,7 @@ app.MapGet("/workitems/{id:guid}", async Task<Results<Ok<WorkItemResponse>, NotF
 .Produces(404);
 
 // List with simple filters + paging
-app.MapGet("/workitems", async Task<IResult> (
+app.MapGet("/workitems", async Task<Results<Ok<WorkItemListResponse>, BadRequest<string>>> (
     string? service,
     WorkItemStatus? status,
     string? assignee,
@@ -84,18 +84,25 @@ app.MapGet("/workitems", async Task<IResult> (
     IWorkItemRepository repo = null!,
     CancellationToken ct = default) =>
 {
+    // simple validation: page >= 1; pageSize in [1, 100]
+    if (page < 1) return TypedResults.BadRequest("page must be >= 1.");
+    if (pageSize < 1 || pageSize > 100) return TypedResults.BadRequest("pageSize must be between 1 and 100.");
+
     var (items, total) = await repo.ListAsync(service, status, assignee, page, pageSize, ct);
-    var result = new
-    {
-        page,
-        pageSize,
-        total,
-        items = items.Select(ToResponse).ToList()
-    };
-    return TypedResults.Ok(result);
+
+    var response = new WorkItemListResponse(
+        Page: page,
+        PageSize: pageSize,
+        Total: total,
+        Items: items.Select(ToResponse).ToList()
+    );
+
+    return TypedResults.Ok(response);
 })
 .WithName("ListWorkItems")
-.Produces(200);
+.Produces<WorkItemListResponse>(200)
+.Produces<string>(400);
+
 
 
 // Update (partial)
