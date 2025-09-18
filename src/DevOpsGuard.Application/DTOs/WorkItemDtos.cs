@@ -1,6 +1,9 @@
 using DevOpsGuard.Domain.Enums;
 
-namespace DevOpsGuard.Application.DTOs;
+namespace DevOpsGuard.Application.DTOs; // Data Transfer Objects (DTOs) for WorkItem
+
+// here, we define request/response models for creating, updating, and retrieving WorkItems
+// these are simple records that map closely to the WorkItem entity, but are decoupled from it for flexibility and security reasons (e.g., not exposing internal IDs or timestamps unnecessarily)
 
 public sealed record WorkItemCreateRequest(
     string Title,

@@ -18,22 +18,45 @@ public sealed class WorkItem
     public DateTime CreatedAtUtc { get; private set; } = DateTime.UtcNow;
     public DateTime UpdatedAtUtc { get; private set; } = DateTime.UtcNow;
 
-    // ctor enforces minimal required fields
     public WorkItem(string title, string service, Priority priority, DateOnly? dueDate = null)
     {
         Title = !string.IsNullOrWhiteSpace(title)
-            ? title
+            ? title.Trim()
             : throw new ArgumentException("Title is required.", nameof(title));
 
         Service = !string.IsNullOrWhiteSpace(service)
-            ? service
+            ? service.Trim()
             : throw new ArgumentException("Service is required.", nameof(service));
 
         Priority = priority;
         DueDate = dueDate;
     }
 
-    // domain behaviors (tiny for now)
+    // -------- Domain behaviors (no reflection needed) --------
+    public void Rename(string newTitle)
+    {
+        if (string.IsNullOrWhiteSpace(newTitle))
+            throw new ArgumentException("Title cannot be empty.", nameof(newTitle));
+
+        Title = newTitle.Trim();
+        Touch();
+    }
+
+    public void MoveToService(string newService)
+    {
+        if (string.IsNullOrWhiteSpace(newService))
+            throw new ArgumentException("Service cannot be empty.", nameof(newService));
+
+        Service = newService.Trim();
+        Touch();
+    }
+
+    public void ChangePriority(Priority priority)
+    {
+        Priority = priority;
+        Touch();
+    }
+
     public void SetStatus(WorkItemStatus status)
     {
         Status = status;

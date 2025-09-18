@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DevOpsGuard.Application\DevOpsGuard.Application.csproj" />
+    <ProjectReference Include="..\DevOpsGuard.Infrastructure\DevOpsGuard.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>
