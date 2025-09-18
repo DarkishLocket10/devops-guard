@@ -4,6 +4,7 @@ using DevOpsGuard.Domain.Entities;
 using DevOpsGuard.Domain.Enums;
 using DevOpsGuard.Infrastructure.Repositories;
 using Microsoft.AspNetCore.Http.HttpResults;
+using System.Globalization;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -136,6 +137,55 @@ app.MapPatch("/workitems/{id:guid}", async Task<Results<Ok<WorkItemResponse>, No
 .Produces<WorkItemResponse>(200)
 .Produces<string>(400)
 .Produces(404);
+
+
+// Delete
+app.MapDelete("/workitems/{id:guid}", async Task<Results<NoContent, NotFound>> (
+    Guid id,
+    IWorkItemRepository repo,
+    CancellationToken ct) =>
+{
+    var existing = await repo.GetByIdAsync(id, ct);
+    if (existing is null) return TypedResults.NotFound();
+
+    await repo.DeleteAsync(id, ct);
+    return TypedResults.NoContent();
+})
+.WithName("DeleteWorkItem")
+.Produces(204)
+.Produces(404);
+
+
+// Dev-only seed endpoint (idempotent-ish within one process run)
+app.MapPost("/dev/seed", async Task<IResult> (
+    IWorkItemRepository repo,
+    CancellationToken ct) =>
+{
+    var items = new[]
+    {
+        new WorkItemCreateRequest("Fix NRE in billing webhook", "billing", Priority.High,  DateOnly.FromDateTime(DateTime.UtcNow.AddDays(3)),  "billing-api", "alex",  new(){"bug","payments"}),
+        new WorkItemCreateRequest("Add rate limiting to gateway", "api-gateway", Priority.P0, DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1)),  "gateway",     "jamie", new(){"security","p0"}),
+        new WorkItemCreateRequest("Improve docs sidebar",        "docs",     Priority.Medium, DateOnly.FromDateTime(DateTime.UtcNow.AddDays(7)),  "docs-site",   "riley", new(){"ux"}),
+        new WorkItemCreateRequest("Cache hot path in web",       "web",      Priority.Low,    null,                                                "frontend",    null,    new(){"perf"}),
+        new WorkItemCreateRequest("Migrate to new auth lib",     "api-gateway", Priority.High, DateOnly.FromDateTime(DateTime.UtcNow.AddDays(10)),"auth",       "alex",  new(){"tech-debt"})
+    };
+
+    foreach (var req in items)
+    {
+        var e = new WorkItem(req.Title, req.Service, req.Priority, req.DueDate);
+        e.SetComponent(req.Component);
+        e.AssignTo(req.Assignee);
+        if (req.Labels is not null) e.ReplaceLabels(req.Labels);
+        await repo.AddAsync(e, ct);
+    }
+
+    return TypedResults.Ok(new { seeded = items.Length });
+})
+.WithName("SeedDemoData")
+.Produces(200);
+
+
+
 
 // Helpers for mapping & tiny updates
 static WorkItemResponse ToResponse(WorkItem e) =>
