@@ -3,19 +3,103 @@ using DevOpsGuard.Application.DTOs;
 using DevOpsGuard.Domain.Entities;
 using DevOpsGuard.Domain.Enums;
 using DevOpsGuard.Infrastructure.Repositories;
+using DevOpsGuard.Application.Validation;
+using DevOpsGuard.Api.Filters;
+using DevOpsGuard.Infrastructure.Data;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.OpenApi;
 using System.Globalization;
+using System.Text.Json.Serialization;
+using FluentValidation;
+
+
+
+
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.ConfigureHttpJsonOptions(options =>
+{
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
+});
+
 
 // Services
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+
+builder.Services.AddSwaggerGen(options =>
+{
+    // Declare an API Key scheme called "ApiKeyAuth"
+    options.AddSecurityDefinition("ApiKeyAuth", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+    {
+        Type = Microsoft.OpenApi.Models.SecuritySchemeType.ApiKey,
+        Name = "X-API-Key",
+        In = Microsoft.OpenApi.Models.ParameterLocation.Header,
+        Description = "Paste your API key here"
+    });
+
+    // Require it by default (Swagger UI will show an 'Authorize' button)
+    options.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
+    {
+        {
+            new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+            {
+                Reference = new Microsoft.OpenApi.Models.OpenApiReference
+                {
+                    Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
+                    Id = "ApiKeyAuth"
+                }
+            },
+            Array.Empty<string>()
+        }
+    });
+});
+
+
+var cs = builder.Configuration.GetConnectionString("Default");
+builder.Services.AddDbContext<DevOpsGuardDbContext>(options =>
+    options.UseSqlServer(cs));
+
+// ProblemDetails for standardized errors
+builder.Services.AddProblemDetails();
+
+// Register all FluentValidation validators from Application assembly
+builder.Services.AddValidatorsFromAssemblyContaining<WorkItemCreateRequestValidator>();
+
 
 // Register in-memory repo (later we'll swap to EF Core)
-builder.Services.AddSingleton<IWorkItemRepository, InMemoryWorkItemRepository>();
+//builder.Services.AddSingleton<IWorkItemRepository, InMemoryWorkItemRepository>();
+
+// Toggle between in-memory and SQL repositories
+var useSql = builder.Configuration.GetValue<bool>("UseSqlServer");
+
+if (useSql)
+{
+    builder.Services.AddScoped<IWorkItemRepository, EfWorkItemRepository>();
+}
+else
+{
+    builder.Services.AddSingleton<IWorkItemRepository, InMemoryWorkItemRepository>();
+}
+
+var apiKey = builder.Configuration.GetValue<string>("ApiKey") ?? string.Empty;
+var requireApiKey = new ApiKeyFilter(apiKey);
+
 
 var app = builder.Build();
+
+// Developer exception page is fine in Dev, but also map ProblemDetails for non-dev
+app.UseExceptionHandler();
+app.UseStatusCodePages(); // optional, surfaces simple pages for non-JSON requests
+
+
+if (useSql)
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<DevOpsGuardDbContext>();
+    db.Database.Migrate(); // creates DB and applies migrations
+}
+
 
 if (app.Environment.IsDevelopment())
 {
@@ -47,6 +131,7 @@ app.MapPost("/workitems", async Task<Results<Created<WorkItemResponse>, BadReque
     if (string.IsNullOrWhiteSpace(req.Title)) return TypedResults.BadRequest("Title is required.");
     if (string.IsNullOrWhiteSpace(req.Service)) return TypedResults.BadRequest("Service is required.");
 
+
     var entity = new WorkItem(req.Title, req.Service, req.Priority, req.DueDate);
     entity.SetComponent(req.Component);
     entity.AssignTo(req.Assignee);
@@ -56,10 +141,38 @@ app.MapPost("/workitems", async Task<Results<Created<WorkItemResponse>, BadReque
 
     var dto = ToResponse(entity);
     return TypedResults.Created($"/workitems/{dto.Id}", dto);
+
 })
+.AddEndpointFilter(new ValidationFilter<WorkItemCreateRequest>())
 .WithName("CreateWorkItem")
 .Produces<WorkItemResponse>(201)
-.Produces<string>(400);
+.Produces<string>(400)
+.AddEndpointFilter(requireApiKey)
+.WithOpenApi(op =>
+{
+    op.Summary = "Create a new work item";
+    op.Description = "Creates a work item for a given service with optional assignee, component, labels, and due date.";
+
+    // Example request body
+    op.RequestBody = op.RequestBody ?? new Microsoft.OpenApi.Models.OpenApiRequestBody();
+    op.RequestBody.Content["application/json"].Example = new Microsoft.OpenApi.Any.OpenApiObject
+    {
+        ["title"]    = new Microsoft.OpenApi.Any.OpenApiString("Fix NRE in billing webhook"),
+        ["service"]  = new Microsoft.OpenApi.Any.OpenApiString("billing"),
+        ["priority"] = new Microsoft.OpenApi.Any.OpenApiString("High"),
+        ["dueDate"]  = new Microsoft.OpenApi.Any.OpenApiString(DateOnly.FromDateTime(DateTime.UtcNow.AddDays(7)).ToString("yyyy-MM-dd")),
+        ["component"]= new Microsoft.OpenApi.Any.OpenApiString("billing-api"),
+        ["assignee"] = new Microsoft.OpenApi.Any.OpenApiString("alex"),
+        ["labels"]   = new Microsoft.OpenApi.Any.OpenApiArray
+        {
+            new Microsoft.OpenApi.Any.OpenApiString("bug"),
+            new Microsoft.OpenApi.Any.OpenApiString("payments")
+        }
+    };
+    return op;
+});
+
+
 
 // Get by id
 app.MapGet("/workitems/{id:guid}", async Task<Results<Ok<WorkItemResponse>, NotFound>> (
@@ -82,14 +195,23 @@ app.MapGet("/workitems", async Task<Results<Ok<WorkItemListResponse>, BadRequest
     string? assignee,
     int page = 1,
     int pageSize = 20,
+    string? sortBy = "updatedAt",   // new
+    string? sortDir = "desc",       // new
     IWorkItemRepository repo = null!,
     CancellationToken ct = default) =>
 {
-    // simple validation: page >= 1; pageSize in [1, 100]
     if (page < 1) return TypedResults.BadRequest("page must be >= 1.");
     if (pageSize < 1 || pageSize > 100) return TypedResults.BadRequest("pageSize must be between 1 and 100.");
 
-    var (items, total) = await repo.ListAsync(service, status, assignee, page, pageSize, ct);
+    var by = (sortBy ?? "updatedAt").ToLowerInvariant();
+    if (by is not ("updatedat" or "priority" or "duedate"))
+        return TypedResults.BadRequest("sortBy must be one of: updatedAt, priority, dueDate.");
+
+    var dir = (sortDir ?? "desc").ToLowerInvariant();
+    if (dir is not ("asc" or "desc"))
+        return TypedResults.BadRequest("sortDir must be 'asc' or 'desc'.");
+
+    var (items, total) = await repo.ListAsync(service, status, assignee, page, pageSize, by, dir, ct);
 
     var response = new WorkItemListResponse(
         Page: page,
@@ -102,7 +224,50 @@ app.MapGet("/workitems", async Task<Results<Ok<WorkItemListResponse>, BadRequest
 })
 .WithName("ListWorkItems")
 .Produces<WorkItemListResponse>(200)
-.Produces<string>(400);
+.Produces<string>(400)
+.WithOpenApi(op =>
+{
+    op.Summary = "List work items";
+    op.Description = "Returns a paged list with optional filters (service, status, assignee) and sorting (updatedAt, priority, dueDate).";
+
+    // Example 200 response
+    var example = new Microsoft.OpenApi.Any.OpenApiObject
+    {
+        ["page"] = new Microsoft.OpenApi.Any.OpenApiInteger(1),
+        ["pageSize"] = new Microsoft.OpenApi.Any.OpenApiInteger(20),
+        ["total"] = new Microsoft.OpenApi.Any.OpenApiInteger(42),
+        ["items"] = new Microsoft.OpenApi.Any.OpenApiArray
+        {
+            new Microsoft.OpenApi.Any.OpenApiObject
+            {
+                ["id"] = new Microsoft.OpenApi.Any.OpenApiString(Guid.NewGuid().ToString()),
+                ["title"] = new Microsoft.OpenApi.Any.OpenApiString("Add rate limiting to gateway"),
+                ["service"] = new Microsoft.OpenApi.Any.OpenApiString("api-gateway"),
+                ["priority"] = new Microsoft.OpenApi.Any.OpenApiString("P0"),
+                ["dueDate"] = new Microsoft.OpenApi.Any.OpenApiString(DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1)).ToString("yyyy-MM-dd")),
+                ["status"] = new Microsoft.OpenApi.Any.OpenApiString("Open"),
+                ["component"] = new Microsoft.OpenApi.Any.OpenApiString("gateway"),
+                ["assignee"] = new Microsoft.OpenApi.Any.OpenApiString("jamie"),
+                ["labels"] = new Microsoft.OpenApi.Any.OpenApiArray
+                {
+                    new Microsoft.OpenApi.Any.OpenApiString("security"),
+                    new Microsoft.OpenApi.Any.OpenApiString("p0")
+                },
+                ["createdAtUtc"] = new Microsoft.OpenApi.Any.OpenApiString(DateTime.UtcNow.AddDays(-2).ToString("O")),
+                ["updatedAtUtc"] = new Microsoft.OpenApi.Any.OpenApiString(DateTime.UtcNow.ToString("O"))
+            }
+        }
+    };
+
+    if (op.Responses.TryGetValue("200", out var resp) &&
+        resp.Content.TryGetValue("application/json", out var media))
+    {
+        media.Example = example;
+    }
+
+    return op;
+});
+
 
 
 
@@ -133,9 +298,11 @@ app.MapPatch("/workitems/{id:guid}", async Task<Results<Ok<WorkItemResponse>, No
     await repo.UpdateAsync(entity, ct);
     return TypedResults.Ok(ToResponse(entity));
 })
+.AddEndpointFilter(new ValidationFilter<WorkItemUpdateRequest>())
 .WithName("UpdateWorkItem")
 .Produces<WorkItemResponse>(200)
 .Produces<string>(400)
+.AddEndpointFilter(requireApiKey)
 .Produces(404);
 
 
@@ -153,6 +320,7 @@ app.MapDelete("/workitems/{id:guid}", async Task<Results<NoContent, NotFound>> (
 })
 .WithName("DeleteWorkItem")
 .Produces(204)
+.AddEndpointFilter(requireApiKey)
 .Produces(404);
 
 
@@ -182,7 +350,82 @@ app.MapPost("/dev/seed", async Task<IResult> (
     return TypedResults.Ok(new { seeded = items.Length });
 })
 .WithName("SeedDemoData")
+.AddEndpointFilter(requireApiKey)
 .Produces(200);
+
+// -------------------------
+// Metrics (SQL-backed)
+// -------------------------
+app.MapGet("/metrics", async Task<Results<Ok<MetricsResponse>, ProblemHttpResult>> (
+    DevOpsGuardDbContext db,
+    CancellationToken ct) =>
+{
+    try
+    {
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var sevenDaysAgo = DateTime.UtcNow.AddDays(-7);
+
+        // Open items = anything not Done
+        var openItemsQ = db.WorkItems
+            .AsNoTracking()
+            .Where(w => w.Status != WorkItemStatus.Resolved);
+
+        var openCount = await openItemsQ.CountAsync(ct);
+
+        var touchedRecently = await openItemsQ
+            .CountAsync(w => w.UpdatedAtUtc >= sevenDaysAgo, ct);
+
+        var overdueOpen = await openItemsQ
+            .CountAsync(w => w.DueDate != null && w.DueDate < today, ct);
+
+        var backlogHealthPct = openCount == 0 ? 100.0 : Math.Round(100.0 * touchedRecently / openCount, 1);
+        var slaBreachRatePct = openCount == 0 ? 0.0 : Math.Round(100.0 * overdueOpen / openCount, 1);
+
+        // Risk stub: base(priority) + 3 * daysOverdue, clamped to [0,100]
+        var comps = await openItemsQ
+            .Select(w => new { w.Priority, w.DueDate })
+            .ToListAsync(ct);
+
+        double avgRisk = 0.0;
+        if (comps.Count > 0)
+        {
+            double sum = 0;
+            foreach (var x in comps)
+            {
+                var baseScore = x.Priority switch
+                {
+                    Priority.Low    => 10,
+                    Priority.Medium => 25,
+                    Priority.High   => 50,
+                    Priority.P0     => 70,
+                    _               => 25
+                };
+                var daysOverdue = x.DueDate.HasValue
+                    ? Math.Max(0, today.DayNumber - x.DueDate.Value.DayNumber)
+                    : 0;
+                sum += Math.Clamp(baseScore + 3 * daysOverdue, 0, 100);
+            }
+            avgRisk = Math.Round(sum / comps.Count, 1);
+        }
+
+        return TypedResults.Ok(new MetricsResponse(
+            BacklogHealthPct: backlogHealthPct,
+            SlaBreachRatePct: slaBreachRatePct,
+            OverdueCount: overdueOpen,
+            Risk: new RiskSummary(avgRisk)
+        ));
+    }
+    catch (Exception ex)
+    {
+        return TypedResults.Problem(
+            title: "Metrics unavailable",
+            detail: $"Metrics require the SQL database. Error: {ex.Message}",
+            statusCode: StatusCodes.Status500InternalServerError);
+    }
+})
+.WithName("GetMetrics")
+.Produces<MetricsResponse>(200)
+.Produces(500);
 
 
 

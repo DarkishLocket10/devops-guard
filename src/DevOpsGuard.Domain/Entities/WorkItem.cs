@@ -13,7 +13,7 @@ public sealed class WorkItem
     public WorkItemStatus Status { get; private set; } = WorkItemStatus.Open;
     public string? Component { get; private set; }
     public string? Assignee { get; private set; }
-    public List<string> Labels { get; } = new();
+    public List<string> Labels { get; private set; } = new();
 
     public DateTime CreatedAtUtc { get; private set; } = DateTime.UtcNow;
     public DateTime UpdatedAtUtc { get; private set; } = DateTime.UtcNow;

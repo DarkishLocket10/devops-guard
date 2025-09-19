@@ -15,7 +15,10 @@ public interface IWorkItemRepository
         string? assignee = null,
         int page = 1,
         int pageSize = 20,
+        string? sortBy = null,     // "updatedAt", "priority", "dueDate"
+        string? sortDir = null,    // "asc" or "desc"
         CancellationToken ct = default);
+
 
     Task UpdateAsync(WorkItem item, CancellationToken ct = default);
     Task DeleteAsync(Guid id, CancellationToken ct = default);

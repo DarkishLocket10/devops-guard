@@ -27,39 +27,53 @@ public sealed class InMemoryWorkItemRepository : IWorkItemRepository
         }
     }
 
-    public Task<(IReadOnlyList<WorkItem> Items, int TotalCount)> ListAsync(
-        string? service = null,
-        WorkItemStatus? status = null,
-        string? assignee = null,
-        int page = 1,
-        int pageSize = 20,
-        CancellationToken ct = default)
+public Task<(IReadOnlyList<WorkItem> Items, int TotalCount)> ListAsync(
+    string? service = null,
+    WorkItemStatus? status = null,
+    string? assignee = null,
+    int page = 1,
+    int pageSize = 20,
+    string? sortBy = null,
+    string? sortDir = null,
+    CancellationToken ct = default)
+{
+    IEnumerable<WorkItem> query;
+    lock (_lock)
     {
-        IEnumerable<WorkItem> query;
-        lock (_lock)
-        {
-            query = _items.ToList(); // copy for thread-safety
-        }
-
-        if (!string.IsNullOrWhiteSpace(service))
-            query = query.Where(i => string.Equals(i.Service, service, StringComparison.OrdinalIgnoreCase));
-
-        if (status is not null)
-            query = query.Where(i => i.Status == status);
-
-        if (!string.IsNullOrWhiteSpace(assignee))
-            query = query.Where(i => string.Equals(i.Assignee, assignee, StringComparison.OrdinalIgnoreCase));
-
-        // simple sort: newest updated first
-        query = query.OrderByDescending(i => i.UpdatedAtUtc);
-
-        var total = query.Count();
-        var items = query.Skip((Math.Max(page, 1) - 1) * Math.Max(pageSize, 1))
-                         .Take(Math.Max(pageSize, 1))
-                         .ToList();
-
-        return Task.FromResult(((IReadOnlyList<WorkItem>)items, total));
+        query = _items.ToList(); // copy
     }
+
+    if (!string.IsNullOrWhiteSpace(service))
+        query = query.Where(i => string.Equals(i.Service, service, StringComparison.OrdinalIgnoreCase));
+    if (status is not null)
+        query = query.Where(i => i.Status == status);
+    if (!string.IsNullOrWhiteSpace(assignee))
+        query = query.Where(i => string.Equals(i.Assignee, assignee, StringComparison.OrdinalIgnoreCase));
+
+    // sorting
+    var by = (sortBy ?? "updatedAt").ToLowerInvariant();
+    var dir = (sortDir ?? "desc").ToLowerInvariant();
+
+    Func<WorkItem, object?> key = by switch
+    {
+        "priority" => i => i.Priority,
+        "duedate"  => i => i.DueDate,         // nulls last naturally in Linq-to-Objects
+        _          => i => i.UpdatedAtUtc
+    };
+
+    query = dir == "asc"
+        ? query.OrderBy(key)
+        : query.OrderByDescending(key);
+
+    var total = query.Count();
+    var items = query
+        .Skip((Math.Max(page, 1) - 1) * Math.Max(pageSize, 1))
+        .Take(Math.Max(pageSize, 1))
+        .ToList();
+
+    return Task.FromResult(((IReadOnlyList<WorkItem>)items, total));
+}
+
 
     public Task UpdateAsync(WorkItem item, CancellationToken ct = default)
     {
