@@ -1,7 +1,7 @@
 
 # DevOps Guard
 [![CI](https://github.com/DarkishLocket10/devops-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/DarkishLocket10/devops-guard/actions/workflows/ci.yml)
-
+![.NET](https://img.shields.io/badge/.NET-framework-512BD4) ![C#](https://img.shields.io/badge/C%23-language-9B4F96)
 
 
 A tiny .NET 8 API that tracks developer work items and exposes simple team KPIs (backlog health, SLA breach rate, risk). Built to demo clean architecture, EF Core, minimal APIs, validation, Swagger, and Docker.
