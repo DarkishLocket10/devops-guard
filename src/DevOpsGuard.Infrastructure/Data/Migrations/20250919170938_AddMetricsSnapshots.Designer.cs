@@ -4,6 +4,7 @@ using DevOpsGuard.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace DevOpsGuard.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(DevOpsGuardDbContext))]
-    partial class DevOpsGuardDbContextModelSnapshot : ModelSnapshot
+    [Migration("20250919170938_AddMetricsSnapshots")]
+    partial class AddMetricsSnapshots
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

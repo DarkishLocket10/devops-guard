@@ -8,6 +8,8 @@ public class DevOpsGuardDbContext : DbContext
     public DevOpsGuardDbContext(DbContextOptions<DevOpsGuardDbContext> options) : base(options) { }
 
     public DbSet<WorkItem> WorkItems => Set<WorkItem>();
+    public DbSet<DevOpsGuard.Domain.Entities.MetricsSnapshot> MetricsSnapshots => Set<DevOpsGuard.Domain.Entities.MetricsSnapshot>();
+
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -29,6 +29,8 @@
       - DOTNET_ENVIRONMENT=Development
       - ApiKey=dev-secret-123
       - ASPNETCORE_URLS=http://0.0.0.0:8080
+      - Metrics__AutoCapture=true
+      - Metrics__SnapshotHourLocal=9
     ports:
       - "8080:8080"
 

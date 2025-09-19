@@ -5,13 +5,16 @@ using DevOpsGuard.Domain.Enums;
 using DevOpsGuard.Infrastructure.Repositories;
 using DevOpsGuard.Application.Validation;
 using DevOpsGuard.Api.Filters;
+using DevOpsGuard.Api.Services;
 using DevOpsGuard.Infrastructure.Data;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.OpenApi;
 using System.Globalization;
 using System.Text.Json.Serialization;
+using System.Text;
 using FluentValidation;
+
 
 
 
@@ -54,6 +57,8 @@ builder.Services.AddSwaggerGen(options =>
         }
     });
 });
+
+builder.Services.AddHostedService<DailyMetricsSnapshotService>();
 
 
 var cs = builder.Configuration.GetConnectionString("Default");
@@ -503,6 +508,141 @@ app.MapGet("/metrics", async Task<Results<Ok<MetricsResponse>, ProblemHttpResult
 .Produces<MetricsResponse>(200)
 .Produces(500);
 
+// Capture current metrics into a snapshot (dev helper)
+app.MapPost("/dev/metrics/snapshot", async Task<IResult> (
+    DevOpsGuardDbContext db,
+    CancellationToken ct) =>
+{
+    try
+    {
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var sevenDaysAgo = DateTime.UtcNow.AddDays(-7);
+
+        var openItemsQ = db.WorkItems.AsNoTracking()
+            .Where(w => w.Status != WorkItemStatus.Resolved);
+
+        var openCount = await openItemsQ.CountAsync(ct);
+        var touchedRecently = await openItemsQ.CountAsync(w => w.UpdatedAtUtc >= sevenDaysAgo, ct);
+        var overdueOpen = await openItemsQ.CountAsync(w => w.DueDate != null && w.DueDate < today, ct);
+
+        var backlogHealthPct = openCount == 0 ? 100.0 : Math.Round(100.0 * touchedRecently / openCount, 1);
+        var slaBreachRatePct = openCount == 0 ? 0.0 : Math.Round(100.0 * overdueOpen / openCount, 1);
+
+        var comps = await openItemsQ.Select(w => new { w.Priority, w.DueDate }).ToListAsync(ct);
+        double riskAvg = 0.0;
+        if (comps.Count > 0)
+        {
+            double sum = 0;
+            foreach (var x in comps)
+            {
+                var baseScore = x.Priority switch
+                {
+                    Priority.Low    => 10,
+                    Priority.Medium => 25,
+                    Priority.High   => 50,
+                    Priority.P0     => 70,
+                    _               => 25
+                };
+                var daysOverdue = x.DueDate.HasValue ? Math.Max(0, DateOnly.FromDateTime(DateTime.UtcNow).DayNumber - x.DueDate.Value.DayNumber) : 0;
+                sum += Math.Clamp(baseScore + 3 * daysOverdue, 0, 100);
+            }
+            riskAvg = Math.Round(sum / comps.Count, 1);
+        }
+
+        var snap = new MetricsSnapshot(
+            capturedAtUtc: DateTime.UtcNow,
+            backlogHealthPct: backlogHealthPct,
+            slaBreachRatePct: slaBreachRatePct,
+            overdueCount: overdueOpen,
+            riskAvg: riskAvg
+        );
+
+        db.MetricsSnapshots.Add(snap);
+        await db.SaveChangesAsync(ct);
+
+        return TypedResults.Ok(new { saved = true, snap.Id, snap.CapturedAtUtc });
+    }
+    catch (Exception ex)
+    {
+        return TypedResults.Problem(title: "Snapshot failed", detail: ex.Message, statusCode: 500);
+    }
+})
+.AddEndpointFilter(requireApiKey)
+.WithName("CaptureMetricsSnapshot")
+.Produces(200)
+.Produces(500)
+.WithOpenApi(op => { op.Summary = "Capture a metrics snapshot (dev)"; return op; });
+
+
+// Read metrics history (last N days; default 14)
+app.MapGet("/metrics/history", async Task<Ok<MetricsHistoryResponse>> (
+    int days,
+    DevOpsGuardDbContext db,
+    CancellationToken ct) =>
+{
+    var windowDays = days <= 0 ? 14 : Math.Min(days, 90); // cap at 90
+    var since = DateTime.UtcNow.AddDays(-windowDays);
+
+    var points = await db.MetricsSnapshots.AsNoTracking()
+        .Where(s => s.CapturedAtUtc >= since)
+        .OrderBy(s => s.CapturedAtUtc)
+        .Select(s => new MetricsHistoryPoint(
+            s.CapturedAtUtc,
+            s.BacklogHealthPct,
+            s.SlaBreachRatePct,
+            s.OverdueCount,
+            s.RiskAvg))
+        .ToListAsync(ct);
+
+    return TypedResults.Ok(new MetricsHistoryResponse(points.Count, points));
+})
+.WithName("GetMetricsHistory")
+.Produces<MetricsHistoryResponse>(200)
+.WithOpenApi(op => { op.Summary = "Get metrics history (snapshots)"; return op; });
+
+// CSV export of metrics history
+app.MapGet("/metrics/history.csv", async Task<IResult> (
+    int days,
+    DevOpsGuardDbContext db,
+    CancellationToken ct) =>
+{
+    var windowDays = days <= 0 ? 14 : Math.Min(days, 90);
+    var since = DateTime.UtcNow.AddDays(-windowDays);
+
+    var points = await db.MetricsSnapshots.AsNoTracking()
+        .Where(s => s.CapturedAtUtc >= since)
+        .OrderBy(s => s.CapturedAtUtc)
+        .Select(s => new
+        {
+            s.CapturedAtUtc,
+            s.BacklogHealthPct,
+            s.SlaBreachRatePct,
+            s.OverdueCount,
+            s.RiskAvg
+        })
+        .ToListAsync(ct);
+
+    // Build CSV (invariant formatting; Excel-friendly ISO datetimes)
+    var sb = new StringBuilder();
+    sb.AppendLine("capturedAtUtc,backlogHealthPct,slaBreachRatePct,overdueCount,riskAvg");
+
+    foreach (var p in points)
+    {
+        sb.Append(p.CapturedAtUtc.ToString("O", CultureInfo.InvariantCulture)).Append(',')
+          .Append(p.BacklogHealthPct.ToString("0.0", CultureInfo.InvariantCulture)).Append(',')
+          .Append(p.SlaBreachRatePct.ToString("0.0", CultureInfo.InvariantCulture)).Append(',')
+          .Append(p.OverdueCount.ToString(CultureInfo.InvariantCulture)).Append(',')
+          .Append(p.RiskAvg.ToString("0.0", CultureInfo.InvariantCulture)).AppendLine();
+    }
+
+    var bytes = Encoding.UTF8.GetBytes(sb.ToString());
+    var fileName = $"metrics-history-{windowDays}d.csv";
+    return TypedResults.File(bytes, "text/csv", fileName);
+})
+.WithName("GetMetricsHistoryCsv")
+.AddEndpointFilter(requireApiKey)
+.Produces(200)
+.WithOpenApi(op => { op.Summary = "Download metrics history as CSV"; return op; });
 
 
 
