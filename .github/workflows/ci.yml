@@ -18,7 +18,7 @@ jobs:
     env:
       DOTNET_VERSION: "8.0.x"
       IMAGE_NAME: ghcr.io/${{ github.repository }}/devopsguard-api
-      PUSH_DOCKER: "false" # set to "true" to push image to GHCR
+      PUSH_DOCKER: "true" # set to "true" to push image to GHCR
 
     steps:
       - name: Checkout

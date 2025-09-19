@@ -15,3 +15,7 @@ Thumbs.db
 # publish + temp
 artifacts/
 */Properties/launchSettings.json
+
+
+# Local env files
+.env
