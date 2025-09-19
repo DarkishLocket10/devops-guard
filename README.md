@@ -3,6 +3,7 @@
 [![CI](https://github.com/DarkishLocket10/devops-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/DarkishLocket10/devops-guard/actions/workflows/ci.yml)
 
 
+
 A tiny .NET 8 API that tracks developer work items and exposes simple team KPIs (backlog health, SLA breach rate, risk). Built to demo clean architecture, EF Core, minimal APIs, validation, Swagger, and Docker.
 
 ## 🚀 Quickstart (one command)
