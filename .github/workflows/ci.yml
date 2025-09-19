@@ -17,7 +17,6 @@ jobs:
 
     env:
       DOTNET_VERSION: "8.0.x"
-      IMAGE_NAME: ghcr.io/${{ github.repository }}/devopsguard-api
       PUSH_DOCKER: "true" # set to "true" to push image to GHCR
 
     steps:
@@ -56,6 +55,13 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute lowercase image name
+        id: img
+        run: |
+          echo "IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY,,}/devopsguard-api" >> $GITHUB_ENV
+          echo "Computed IMAGE_NAME=$IMAGE_NAME"
+
 
       - name: Build API image
         uses: docker/build-push-action@v6
