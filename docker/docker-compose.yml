@@ -3,7 +3,7 @@
     image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: devopsguard-sql
     env_file:
-      - ../.env
+      - .env
     environment:
       - ACCEPT_EULA=Y
       - SA_PASSWORD=${SA_PASSWORD}

@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>DevOps Guard • Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- minimal styling -->
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin: 24px; color: #111; }
+    header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+    input, button, select { padding: 8px; font-size: 14px; }
+    .kpis { display: grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap: 12px; margin: 16px 0; }
+    .card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 12px; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+    .label { color: #6b7280; font-size: 12px; }
+    .value { font-weight: 700; font-size: 20px; margin-top: 4px; }
+    .row { display:flex; gap: 8px; align-items:center; flex-wrap:wrap; }
+    .muted { color:#6b7280; }
+    canvas { max-width: 100%; height: 320px; }
+  </style>
+  <!-- Chart.js via CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <header>
+    <h1 style="margin:0;">DevOps Guard • Dashboard</h1>
+    <span class="muted">mini UI</span>
+  </header>
+
+  <div class="row">
+    <label for="apiKey">API key:</label>
+    <input id="apiKey" type="password" placeholder="X-API-Key value" />
+    <label for="days">Days:</label>
+    <select id="days">
+      <option>7</option>
+      <option selected>14</option>
+      <option>30</option>
+      <option>60</option>
+      <option>90</option>
+    </select>
+    <button id="loadBtn">Load</button>
+    <button id="csvBtn" type="button">Download CSV</button>
+    <span id="status" class="muted"></span>
+  </div>
+
+  <section class="kpis" id="kpiCards">
+    <div class="card"><div class="label">Backlog Health %</div><div class="value" id="kpiHealth">—</div></div>
+    <div class="card"><div class="label">SLA Breach %</div><div class="value" id="kpiSla">—</div></div>
+    <div class="card"><div class="label">Overdue</div><div class="value" id="kpiOverdue">—</div></div>
+    <div class="card"><div class="label">Risk (avg)</div><div class="value" id="kpiRisk">—</div></div>
+  </section>
+
+  <section class="card">
+    <div class="label">Risk avg (history)</div>
+    <canvas id="riskChart"></canvas>
+  </section>
+
+<section class="card" style="margin-top:16px;">
+  <div class="row" style="justify-content:space-between;">
+    <div class="label">Work Items</div>
+    <div class="row">
+      <input id="filterService" placeholder="service (opt)" />
+      <select id="filterStatus" title="status (opt)">
+        <option value="">status…</option>
+        <option>Open</option>
+        <option>InProgress</option>
+        <option>Blocked</option>
+        <option>Resolved</option>
+      </select>
+      <input id="filterAssignee" placeholder="assignee (opt)" />
+      <select id="sortBy">
+        <option value="updatedAt" selected>updatedAt</option>
+        <option value="priority">priority</option>
+        <option value="dueDate">dueDate</option>
+      </select>
+      <select id="sortDir">
+        <option value="desc" selected>desc</option>
+        <option value="asc">asc</option>
+      </select>
+      <button id="refreshItemsBtn" type="button">Refresh</button>
+    </div>
+  </div>
+
+    <!-- Create Work Item -->
+  <div class="card" style="margin-top:10px; background:#fafafa;">
+    <div class="row" style="flex-wrap:wrap; gap:8px;">
+      <input id="newTitle"      placeholder="Title *"           style="min-width:240px;" />
+      <input id="newService"    placeholder="Service *"         />
+      <select id="newPriority" title="Priority">
+        <option>Low</option>
+        <option>Medium</option>
+        <option selected>High</option>
+        <option>P0</option>
+      </select>
+      <input id="newDueDate"    type="date" title="Due date (optional)" />
+      <input id="newComponent"  placeholder="Component (opt)"   />
+      <input id="newAssignee"   placeholder="Assignee (opt)"    />
+      <input id="newLabels"     placeholder="labels (comma-separated, opt)" style="min-width:240px;" />
+      <button id="createBtn" type="button">Create</button>
+    </div>
+    <div class="muted" style="margin-top:6px;">Fields marked * are required.</div>
+  </div>
+
+
+  <div style="overflow:auto; margin-top:10px;">
+    <table id="itemsTable" style="width:100%; border-collapse:collapse;">
+      <thead>
+        <tr>
+          <th style="text-align:left; border-bottom:1px solid #e5e7eb; padding:6px;">Title</th>
+          <th style="text-align:left; border-bottom:1px solid #e5e7eb; padding:6px;">Service</th>
+          <th style="text-align:left; border-bottom:1px solid #e5e7eb; padding:6px;">Priority</th>
+          <th style="text-align:left; border-bottom:1px solid #e5e7eb; padding:6px;">Status</th>
+          <th style="text-align:left; border-bottom:1px solid #e5e7eb; padding:6px;">Due</th>
+          <th style="text-align:left; border-bottom:1px solid #e5e7eb; padding:6px;">Assignee</th>
+          <th style="text-align:left; border-bottom:1px solid #e5e7eb; padding:6px;">Labels</th>
+          <th style="text-align:left; border-bottom:1px solid #e5e7eb; padding:6px;">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="itemsBody"></tbody>
+    </table>
+  </div>
+</section>
+
+
+  <script>
+    const apiBase = window.location.origin; // same origin as API
+    const apiKeyInput = document.getElementById('apiKey');
+    const daysSel = document.getElementById('days');
+    const statusEl = document.getElementById('status');
+
+    // remember key locally (browser only)
+    const savedKey = localStorage.getItem('dg_api_key');
+    if (savedKey) apiKeyInput.value = savedKey;
+
+    let chart;
+
+    async function fetchJson(path) {
+      const res = await fetch(path, {
+        headers: { 'X-API-Key': apiKeyInput.value }
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`HTTP ${res.status}: ${text}`);
+      }
+      return res.json();
+    }
+
+    function setStatus(msg) { statusEl.textContent = msg; }
+
+    async function loadAll() {
+      try {
+        setStatus('Loading…');
+        localStorage.setItem('dg_api_key', apiKeyInput.value);
+
+        // KPIs now
+        const metrics = await fetchJson(`${apiBase}/metrics`);
+        document.getElementById('kpiHealth').textContent  = (metrics.backlogHealthPct ?? 0).toFixed(1);
+        document.getElementById('kpiSla').textContent     = (metrics.slaBreachRatePct ?? 0).toFixed(1);
+        document.getElementById('kpiOverdue').textContent = metrics.overdueCount ?? 0;
+        document.getElementById('kpiRisk').textContent    = (metrics.risk?.avg ?? 0).toFixed(1);
+
+        // History
+        const days = daysSel.value;
+        const hist = await fetchJson(`${apiBase}/metrics/history?days=${days}`);
+        const labels = hist.points.map(p => new Date(p.capturedAtUtc).toLocaleDateString());
+        const data   = hist.points.map(p => p.riskAvg);
+
+        const ctx = document.getElementById('riskChart').getContext('2d');
+        if (chart) chart.destroy();
+        chart = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels,
+            datasets: [{
+              label: 'Risk avg',
+              data,
+            }]
+          },
+          options: {
+            responsive: true,
+            plugins: { legend: { display: true } },
+            scales: {
+              y: { beginAtZero: true, suggestedMax: 100 }
+            }
+          }
+        });
+
+        setStatus(`Loaded ${hist.count} point(s).`);
+      } catch (err) {
+        console.error(err);
+        setStatus(err.message);
+        alert('Error: ' + err.message);
+      }
+    }
+
+    document.getElementById('loadBtn').addEventListener('click', loadAll);
+
+
+    async function downloadCsv() {
+        try {
+          setStatus('Preparing CSV…');
+          const days = daysSel.value;
+
+          // We need to include X-API-Key, so we fetch as a blob and trigger a download
+          const res = await fetch(`${apiBase}/metrics/history.csv?days=${days}`, {
+            headers: { 'X-API-Key': apiKeyInput.value }
+          });
+          if (!res.ok) {
+            const text = await res.text();
+            throw new Error(`HTTP ${res.status}: ${text}`);
+          }
+          const blob = await res.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `metrics-history-${days}d.csv`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          window.URL.revokeObjectURL(url);
+          setStatus('CSV downloaded.');
+        } catch (err) {
+          console.error(err);
+          setStatus(err.message);
+          alert('CSV error: ' + err.message);
+        }
+      }
+
+      document.getElementById('csvBtn').addEventListener('click', downloadCsv);
+
+
+  // Build query string for /workitems from the filter inputs
+  function buildItemsQuery() {
+    const params = new URLSearchParams();
+    const service = document.getElementById('filterService').value.trim();
+    const status = document.getElementById('filterStatus').value.trim();
+    const assignee = document.getElementById('filterAssignee').value.trim();
+    const sortBy = document.getElementById('sortBy').value;
+    const sortDir = document.getElementById('sortDir').value;
+
+    if (service) params.set('service', service);
+    if (status) params.set('status', status);       // enum string e.g., Open, Blocked
+    if (assignee) params.set('assignee', assignee);
+    params.set('page', '1');
+    params.set('pageSize', '50');
+    params.set('sortBy', sortBy);
+    params.set('sortDir', sortDir);
+
+    return params.toString();
+  }
+
+  async function loadItems() {
+    try {
+      setStatus('Loading items…');
+      const qs = buildItemsQuery();
+      const res = await fetch(`${apiBase}/workitems?${qs}`, {
+        headers: { 'X-API-Key': apiKeyInput.value }
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`HTTP ${res.status}: ${text}`);
+      }
+      const data = await res.json(); // { page, pageSize, total, items: [...] }
+      renderItems(data.items || []);
+      setStatus(`Loaded ${data.items?.length ?? 0} of ${data.total ?? 0}.`);
+    } catch (err) {
+      console.error(err);
+      setStatus(err.message);
+      alert('Load items error: ' + err.message);
+    }
+  }
+
+  function renderItems(items) {
+    const tbody = document.getElementById('itemsBody');
+    tbody.innerHTML = '';
+
+    for (const it of items) {
+      const tr = document.createElement('tr');
+
+      const tdTitle = td(htmlEscape(it.title));
+      const tdService = td(htmlEscape(it.service));
+      const tdPriority = td(htmlEscape(it.priority));
+      const tdStatus = td(htmlEscape(it.status));
+      const tdDue = td(it.dueDate ? htmlEscape(it.dueDate) : '—');
+      const tdAssignee = td(it.assignee ? htmlEscape(it.assignee) : '—');
+      const tdLabels = td((it.labels || []).join(', '));
+
+      const tdActions = document.createElement('td');
+      tdActions.style.padding = '6px';
+      tdActions.style.whiteSpace = 'nowrap';
+
+      const delBtn = document.createElement('button');
+      delBtn.textContent = 'Delete';
+      delBtn.onclick = () => confirmDelete(it.id, it.title);
+      delBtn.style.marginRight = '6px';
+
+      // (Edit will come in the next step)
+      tdActions.appendChild(delBtn);
+
+      tr.appendChild(tdTitle);
+      tr.appendChild(tdService);
+      tr.appendChild(tdPriority);
+      tr.appendChild(tdStatus);
+      tr.appendChild(tdDue);
+      tr.appendChild(tdAssignee);
+      tr.appendChild(tdLabels);
+      tr.appendChild(tdActions);
+
+      tbody.appendChild(tr);
+    }
+
+    function td(text) {
+      const cell = document.createElement('td');
+      cell.style.padding = '6px';
+      cell.textContent = text;
+      return cell;
+    }
+    function htmlEscape(s) {
+      return String(s ?? '').replace(/[&<>"']/g, c => ({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#039;'
+      }[c]));
+    }
+  }
+
+  async function confirmDelete(id, title) {
+    if (!confirm(`Delete "${title}"?\nThis cannot be undone.`)) return;
+    try {
+      setStatus('Deleting…');
+      const res = await fetch(`${apiBase}/workitems/${id}`, {
+        method: 'DELETE',
+        headers: { 'X-API-Key': apiKeyInput.value }
+      });
+      if (res.status === 204) {
+        await loadItems();
+        setStatus('Deleted.');
+      } else if (res.status === 404) {
+        setStatus('Not found (already deleted).');
+        await loadItems();
+      } else {
+        const text = await res.text();
+        throw new Error(`HTTP ${res.status}: ${text}`);
+      }
+    } catch (err) {
+      console.error(err);
+      setStatus(err.message);
+      alert('Delete error: ' + err.message);
+    }
+  }
+
+  // Wire the refresh button
+  document.getElementById('refreshItemsBtn').addEventListener('click', loadItems);
+
+  // OPTIONAL: also refresh items after metrics Load (so you see everything update)
+  const oldLoadAll = loadAll;
+  loadAll = async function() {
+    await oldLoadAll();
+    await loadItems();
+  };
+
+async function createWorkItem() {
+    try {
+      const title     = document.getElementById('newTitle').value.trim();
+      const service   = document.getElementById('newService').value.trim();
+      const priority  = document.getElementById('newPriority').value; // "Low" | "Medium" | "High" | "P0"
+      const dueDate   = document.getElementById('newDueDate').value;  // "yyyy-MM-dd" or ""
+      const component = document.getElementById('newComponent').value.trim();
+      const assignee  = document.getElementById('newAssignee').value.trim();
+      const labelsStr = document.getElementById('newLabels').value.trim();
+
+      // basic client validation (server will also validate)
+      if (!title)   { alert('Title is required.');   return; }
+      if (!service) { alert('Service is required.'); return; }
+
+      const labels = labelsStr
+        ? labelsStr.split(',').map(s => s.trim()).filter(Boolean)
+        : [];
+
+      // build request body (omit optional empties)
+      const body = {
+        title, service, priority
+      };
+      if (dueDate)   body.dueDate   = dueDate;   // API expects yyyy-MM-dd (DateOnly)
+      if (component) body.component = component;
+      if (assignee)  body.assignee  = assignee;
+      if (labels.length) body.labels = labels;
+
+      // POST
+      setStatus('Creating…');
+      const btn = document.getElementById('createBtn');
+      btn.disabled = true;
+
+      const res = await fetch(`${apiBase}/workitems`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': apiKeyInput.value
+        },
+        body: JSON.stringify(body)
+      });
+
+      // Handle typical responses
+      if (res.status === 201) {
+        // clear form a bit (keep service/assignee if you like)
+        document.getElementById('newTitle').value = '';
+        document.getElementById('newDueDate').value = '';
+        document.getElementById('newComponent').value = '';
+        document.getElementById('newLabels').value = '';
+
+        await loadItems();
+        setStatus('Created.');
+      } else if (res.status === 400) {
+        const text = await res.text();
+        setStatus('Validation error.');
+        alert('Validation error:\n' + text);
+      } else {
+        const text = await res.text();
+        throw new Error(`HTTP ${res.status}: ${text}`);
+      }
+    } catch (err) {
+      console.error(err);
+      setStatus(err.message);
+      alert('Create error: ' + err.message);
+    } finally {
+      document.getElementById('createBtn').disabled = false;
+    }
+  }
+
+  // wire up the button
+  document.getElementById('createBtn').addEventListener('click', createWorkItem);
+
+
+  </script>
+</body>
+</html>

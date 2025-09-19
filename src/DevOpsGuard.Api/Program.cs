@@ -110,6 +110,9 @@ if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
+    app.UseStaticFiles();
+    app.MapGet("/dashboard", () => Results.Redirect("/dashboard/index.html"));
+
 }
 
 // Root & health
