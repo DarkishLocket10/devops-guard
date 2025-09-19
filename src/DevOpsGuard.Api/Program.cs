@@ -353,6 +353,82 @@ app.MapPost("/dev/seed", async Task<IResult> (
 .AddEndpointFilter(requireApiKey)
 .Produces(200);
 
+
+// -------------------------
+// Events ingest (simple rules)
+// -------------------------
+app.MapPost("/events/ingest", async Task<Results<Ok<EventIngestResponse>, NotFound, BadRequest<string>>> (
+    EventIngestRequest req,
+    IWorkItemRepository repo,
+    CancellationToken ct) =>
+{
+    var item = await repo.GetByIdAsync(req.WorkItemId, ct);
+    if (item is null) return TypedResults.NotFound();
+
+    // normalize kind
+    var kind = (req.Kind ?? "").Trim().ToLowerInvariant();
+    string applied = "none";
+
+    switch (kind)
+    {
+        case "build_failed":
+            item.ReplaceLabels(item.Labels.Concat(new[] { "build-failed" }).Distinct(StringComparer.OrdinalIgnoreCase).ToList());
+            if (item.Priority < DevOpsGuard.Domain.Enums.Priority.High)
+                item.ChangePriority(DevOpsGuard.Domain.Enums.Priority.High);
+            item.SetStatus(DevOpsGuard.Domain.Enums.WorkItemStatus.InProgress);
+            applied = "raised_to_high_and_in_progress";
+            break;
+
+        case "incident_opened":
+            item.ReplaceLabels(item.Labels.Concat(new[] { "incident" }).Distinct(StringComparer.OrdinalIgnoreCase).ToList());
+            item.ChangePriority(DevOpsGuard.Domain.Enums.Priority.P0);
+            item.SetStatus(DevOpsGuard.Domain.Enums.WorkItemStatus.Blocked);
+            applied = "p0_and_blocked";
+            break;
+
+        case "deploy_succeeded":
+            item.ReplaceLabels(item.Labels.Concat(new[] { "deploy-ok" }).Distinct(StringComparer.OrdinalIgnoreCase).ToList());
+            applied = "noted_deploy_ok";
+            break;
+
+        case "coverage_dropped":
+            item.ReplaceLabels(item.Labels.Concat(new[] { "qa" }).Distinct(StringComparer.OrdinalIgnoreCase).ToList());
+            if (item.Priority < DevOpsGuard.Domain.Enums.Priority.Medium)
+                item.ChangePriority(DevOpsGuard.Domain.Enums.Priority.Medium);
+            applied = "raised_to_minimum_medium";
+            break;
+
+        default:
+            return TypedResults.BadRequest("Unknown event kind.");
+    }
+
+    await repo.UpdateAsync(item, ct);
+    return TypedResults.Ok(new EventIngestResponse(item.Id, applied));
+})
+.AddEndpointFilter(new ValidationFilter<EventIngestRequest>()) // reuse our validation filter
+.AddEndpointFilter(requireApiKey)                               // protect if you like
+.WithName("IngestEvent")
+.Produces<EventIngestResponse>(200)
+.Produces<string>(400)
+.Produces(404)
+.WithOpenApi(op =>
+{
+    op.Summary = "Ingest an external event (CI/CD, incident)";
+    op.Description = "Applies simple rules to the referenced work item (e.g., raises priority, sets status, adds labels).";
+    op.RequestBody = op.RequestBody ?? new Microsoft.OpenApi.Models.OpenApiRequestBody();
+    op.RequestBody.Content["application/json"].Example = new Microsoft.OpenApi.Any.OpenApiObject
+    {
+        ["workItemId"] = new Microsoft.OpenApi.Any.OpenApiString(Guid.NewGuid().ToString()),
+        ["kind"] = new Microsoft.OpenApi.Any.OpenApiString("build_failed"),
+        ["source"] = new Microsoft.OpenApi.Any.OpenApiString("github-actions"),
+        ["message"] = new Microsoft.OpenApi.Any.OpenApiString("Build 123 failed on main"),
+        ["occurredAtUtc"] = new Microsoft.OpenApi.Any.OpenApiString(DateTime.UtcNow.ToString("O"))
+    };
+    return op;
+});
+
+
+
 // -------------------------
 // Metrics (SQL-backed)
 // -------------------------
