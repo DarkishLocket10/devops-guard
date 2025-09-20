@@ -273,8 +273,9 @@ dotnet test -c Release
 * Export OpenAPI client (e.g., TypeScript) from Swagger
 
   ---
-  Dark Mode screenshot
-  <img width="1114" height="1330" alt="image" src="https://github.com/user-attachments/assets/e1a58f03-9e29-4283-8877-dc00fbb94a6d" />
+Dark Mode screenshot
+  
+<img width="1114" height="1330" alt="image" src="https://github.com/user-attachments/assets/e1a58f03-9e29-4283-8877-dc00fbb94a6d" />
 
 
 
