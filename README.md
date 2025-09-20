@@ -22,6 +22,7 @@ A compact .NET 8/C# system that tracks software engineering work items, exposes 
 * **Static dashboard** (no Node) at `/dashboard` using Chart.js + fetch
 * **Docker Compose** for API + SQL; **GHCR** image + **GitHub Actions** CI (build, test placeholder, Docker build)
 
+<img width="1111" height="1327" alt="image" src="https://github.com/user-attachments/assets/9f5ab62a-87f4-4133-80f0-e30ad56e6d67" />
 
 
 ## 💻Quick Start (Docker)
@@ -270,5 +271,10 @@ dotnet test -c Release
 * SQLite option for easy local dev without Docker
 * React/Blazor richer UI (table sorting/filters, charts)
 * Export OpenAPI client (e.g., TypeScript) from Swagger
+
+  ---
+  Dark Mode screenshot
+  <img width="1114" height="1330" alt="image" src="https://github.com/user-attachments/assets/e1a58f03-9e29-4283-8877-dc00fbb94a6d" />
+
 
 
