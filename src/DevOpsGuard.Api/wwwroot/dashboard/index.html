@@ -94,7 +94,7 @@
     </div>
 
     <!-- Create Work Item -->
-    <div class="card" style="margin-top:10px; background:#fafafa;">
+    <div class="card" style="margin-top:10px;">
       <div class="row" style="flex-wrap:wrap; gap:8px;">
         <input id="newTitle"      placeholder="Title *"           style="min-width:240px;" />
         <input id="newService"    placeholder="Service *"         />
@@ -590,6 +590,269 @@
     }
   });
 </script>
+
+<style>
+/* System-aware color scheme (also improves native form controls) */
+:root { color-scheme: light dark; }
+
+/* ---------- Design tokens (LIGHT default) ---------- */
+:root {
+  /* Surfaces & text */
+  --bg:           #f8fafc;   /* page background */
+  --bg-elev:      #ffffff;   /* cards & inputs */
+  --text:         #0f172a;   /* slate-900 */
+  --muted:        #64748b;   /* slate-500 */
+
+  /* Brand */
+  --brand:        #9C84EE;
+  --brand-ink:    #5a46c7;
+
+  /* Borders & shadows */
+  --border:       #e5e7eb;
+  --border-soft:  #eef2f6;
+  --card-shadow-1: 0 1px 2px rgba(0,0,0,.06), 0 8px 28px -16px rgba(0,0,0,.28);
+  --card-shadow-2: 0 6px 20px rgba(0,0,0,.10), 0 18px 50px -28px rgba(0,0,0,.25);
+
+  /* Focus ring */
+  --ring:         rgba(156,132,238,.45);
+
+  /* KPI colors */
+  --kpi-good:     #10b981;
+  --kpi-warn:     #f59e0b;
+  --kpi-bad:      #ef4444;
+
+  /* Overlays */
+  --backdrop:     rgba(0,0,0,.45);
+}
+
+/* ---------- Dark mode (system) ---------- */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:           #0b0c10;  /* site background (deep but not pure black) */
+    --bg-elev:      #12141a;  /* elevated surfaces/cards */
+    --text:         #e8ecf7;  /* near-white with slight blue */
+    --muted:        #a1a7b3;
+
+    --border:       #2a2f3b;
+    --border-soft:  #1a1e28;
+
+    --card-shadow-1: 0 1px 2px rgba(0,0,0,.35), 0 10px 30px -18px rgba(0,0,0,.7);
+    --card-shadow-2: 0 16px 60px rgba(0,0,0,.55);
+
+    --ring:         rgba(156,132,238,.60);
+    --backdrop:     rgba(0,0,0,.6);
+  }
+}
+
+/* ---------- Optional manual override (match your portfolio toggle) ---------- */
+/* Add .dark to <html> or <body> to force dark mode regardless of system */
+:root.dark, .dark {
+  --bg:           #0b0c10;
+  --bg-elev:      #12141a;
+  --text:         #e8ecf7;
+  --muted:        #a1a7b3;
+  --border:       #2a2f3b;
+  --border-soft:  #1a1e28;
+  --card-shadow-1: 0 1px 2px rgba(0,0,0,.35), 0 10px 30px -18px rgba(0,0,0,.7);
+  --card-shadow-2: 0 16px 60px rgba(0,0,0,.55);
+  --ring:         rgba(156,132,238,.60);
+  --backdrop:     rgba(0,0,0,.6);
+}
+
+/* ---------- Base scaffold ---------- */
+html, body {
+  font-family: "Inter", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+body { margin: 24px; }
+
+header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.muted { color: var(--muted); }
+.row   { display:flex; gap: 10px; align-items:center; flex-wrap:wrap; }
+
+/* Accent underline on hover (echoes your site) */
+h1 { position: relative; font-weight: 800; letter-spacing: -0.01em; margin: 0; }
+h1::after {
+  content:""; position:absolute; left:0; right:0; bottom:-3px; height:3px;
+  background: currentColor; transform-origin:left; transform: scaleX(0);
+  transition: transform .25s ease; opacity:.75;
+}
+header:hover h1::after { transform: scaleX(1); }
+
+/* ---------- Controls (inputs, selects, buttons) ---------- */
+input, button, select {
+  font: inherit; font-size: 14px; line-height: 1.2;
+  padding: 9px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  color: var(--text);
+  transition: box-shadow .2s ease, border-color .2s ease, transform .06s ease, background-color .2s ease;
+}
+input::placeholder { color: color-mix(in oklab, var(--muted) 78%, transparent); }
+
+input:focus, select:focus, button:focus {
+  outline: none;
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 35%, transparent);
+}
+
+/* Buttons */
+button { cursor: pointer; border-color: color-mix(in oklab, var(--border) 70%, var(--brand) 30%); }
+button:hover { transform: translateY(-1px); box-shadow: var(--card-shadow-1); }
+button:active { transform: translateY(0); box-shadow: none; }
+
+/* Emphasized actions */
+#loadBtn, #csvBtn, #createBtn, #refreshItemsBtn, #snapBtn {
+  border-color: transparent;
+  background: linear-gradient(180deg, color-mix(in oklab, var(--brand) 92%, white) 0%, var(--brand) 100%);
+  color: #fff;
+}
+#csvBtn { background: linear-gradient(180deg, #64748b 0%, #475569 100%); }
+#refreshItemsBtn { background: linear-gradient(180deg, #34d399 0%, #10b981 100%); }
+#createBtn { background: linear-gradient(180deg, #8b5cf6 0%, #7c3aed 100%); }
+#snapBtn { background: linear-gradient(180deg, #22d3ee 0%, #06b6d4 100%); }
+
+/* Preset pills */
+.presetBtn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.presetBtn:hover {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 35%, transparent);
+}
+
+/* ---------- Cards & KPIs ---------- */
+.kpis {
+  display: grid; grid-template-columns: repeat(4, minmax(180px, 1fr));
+  gap: 14px; margin: 16px 0;
+}
+
+.card {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 14px;
+  background: var(--bg-elev);
+  box-shadow: var(--card-shadow-1);
+  transition: transform .2s ease, box-shadow .25s ease, border-color .2s ease, background-color .2s ease;
+}
+.card:hover, .card:focus-within {
+  transform: translateY(-3px);
+  box-shadow: var(--card-shadow-2);
+  border-color: color-mix(in oklab, var(--border) 55%, var(--brand) 45%);
+}
+
+.label {
+  color: var(--muted);
+  font-size: 12px; letter-spacing: .3px; text-transform: uppercase;
+}
+.value {
+  font-weight: 800; font-size: 24px; margin-top: 6px; letter-spacing: -.02em;
+}
+.value.good { color: var(--kpi-good); }
+.value.warn { color: var(--kpi-warn); }
+.value.bad  { color: var(--kpi-bad);  }
+
+/* Chart container */
+canvas { max-width: 100%; height: 320px; border-radius: 12px; background: transparent; }
+
+/* Nested “create” card */
+.card > .card {
+  background: color-mix(in oklab, var(--bg-elev) 85%, white);
+  border-radius: 12px;
+  border-style: dashed;
+  border-color: var(--border);
+}
+
+/* ---------- Table ---------- */
+table { width: 100%; border-collapse: separate; border-spacing: 0; overflow: hidden; }
+thead th {
+  text-align: left; padding: 10px 8px; font-size: 12px; letter-spacing: .3px; text-transform: uppercase;
+  color: var(--muted);
+  position: sticky; top: 0; z-index: 1;
+  background: color-mix(in oklab, var(--bg-elev) 90%, transparent);
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--border);
+}
+tbody td { padding: 12px 8px; border-bottom: 1px solid var(--border-soft); }
+
+/* Zebra + hover */
+tbody tr:nth-child(odd)  { background: color-mix(in oklab, var(--bg-elev) 95%, transparent); }
+tbody tr:hover { background: color-mix(in oklab, var(--brand) 6%, var(--bg-elev)); }
+
+/* Row action buttons */
+td button {
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  background: color-mix(in oklab, var(--bg-elev) 88%, white);
+  color: var(--text);
+}
+td button:hover {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 35%, transparent);
+}
+
+/* Destructive hint (“Delete” — 4th button in your current order) */
+td button:where(:first-child + * + * + *) {
+  border-color: color-mix(in oklab, var(--border) 40%, var(--kpi-bad) 60%);
+}
+td button:where(:first-child + * + * + *):hover {
+  background: color-mix(in oklab, var(--kpi-bad) 12%, var(--bg-elev));
+}
+
+/* ---------- Modal ---------- */
+#editModal {
+  display: none; position: fixed; inset: 0;
+  background: var(--backdrop);
+  backdrop-filter: blur(2px);
+}
+#editModal > div {
+  max-width: 680px; margin: 7% auto; background: var(--bg-elev);
+  color: var(--text);
+  border-radius: 18px; padding: 18px 16px;
+  border: 1px solid var(--border);
+  box-shadow: var(--card-shadow-2);
+}
+#editModal h3 { margin: 0 0 8px; font-size: 20px; }
+#editModal .row input, #editModal .row select { min-width: 180px; }
+#editSaveBtn {
+  background: linear-gradient(180deg, #22c55e 0%, #16a34a 100%);
+  color: white; border-color: transparent;
+}
+#editCancelBtn { background: transparent; color: var(--text); }
+
+/* ---------- A11y helpers ---------- */
+.sr-only {
+  position:absolute; width:1px; height:1px; padding:0; margin:-1px;
+  overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0;
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 900px) {
+  .kpis { grid-template-columns: repeat(2, minmax(160px, 1fr)); }
+}
+@media (max-width: 560px) {
+  body { margin: 18px; }
+  .kpis { grid-template-columns: 1fr; }
+  thead th { position: static; }
+}
+
+/* ---------- Focus visible polish ---------- */
+#loadBtn:focus, #csvBtn:focus, #createBtn:focus, #refreshItemsBtn:focus, #snapBtn:focus {
+  outline: none;
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--ring) 40%, transparent);
+}
+
+  </style>
 
 </body>
 </html>
