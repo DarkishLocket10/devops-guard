@@ -6,7 +6,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <!-- minimal styling -->
   <style>
-    body { font-family: system-ui, Arial, sans-serif; margin: 24px; color: #111; }
+    :root { color-scheme: light; }
+    body { font-family: system-ui, Arial, sans-serif; margin: 24px; color: #111; background:#f8fafc; }
     header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
     input, button, select { padding: 8px; font-size: 14px; }
     .kpis { display: grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap: 12px; margin: 16px 0; }
@@ -16,6 +17,7 @@
     .row { display:flex; gap: 8px; align-items:center; flex-wrap:wrap; }
     .muted { color:#6b7280; }
     canvas { max-width: 100%; height: 320px; }
+    .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
   </style>
   <!-- Chart.js via CDN -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -26,9 +28,9 @@
     <span class="muted">mini UI</span>
   </header>
 
-  <div class="row">
+  <div class="row" aria-label="Controls">
     <label for="apiKey">API key:</label>
-    <input id="apiKey" type="password" placeholder="X-API-Key value" />
+    <input id="apiKey" type="password" placeholder="X-API-Key value" autocomplete="off" />
     <label for="days">Days:</label>
     <select id="days">
       <option>7</option>
@@ -37,208 +39,204 @@
       <option>60</option>
       <option>90</option>
     </select>
-    <button id="loadBtn">Load</button>
+    <button id="loadBtn" type="button">Load</button>
+    <button id="snapBtn" type="button">Capture Snapshot</button>
     <button id="csvBtn" type="button">Download CSV</button>
-    <span id="status" class="muted"></span>
+    <label style="margin-left:8px;"><input type="checkbox" id="autoRefresh"> auto-refresh (60s)</label>
+    <span id="status" class="muted" aria-live="polite"></span>
   </div>
 
-  <section class="kpis" id="kpiCards">
+  <section class="kpis" id="kpiCards" aria-label="KPIs">
     <div class="card"><div class="label">Backlog Health %</div><div class="value" id="kpiHealth">—</div></div>
     <div class="card"><div class="label">SLA Breach %</div><div class="value" id="kpiSla">—</div></div>
     <div class="card"><div class="label">Overdue</div><div class="value" id="kpiOverdue">—</div></div>
     <div class="card"><div class="label">Risk (avg)</div><div class="value" id="kpiRisk">—</div></div>
   </section>
 
-  <section class="card">
+  <section class="card" aria-label="Risk history">
     <div class="label">Risk avg (history)</div>
     <canvas id="riskChart"></canvas>
   </section>
 
-<section class="card" style="margin-top:16px;">
-  <div class="row" style="justify-content:space-between;">
-    <div class="label">Work Items</div>
-    <div class="row">
-      <input id="filterService" placeholder="service (opt)" />
-      <select id="filterStatus" title="status (opt)">
-        <option value="">status…</option>
-        <option>Open</option>
-        <option>InProgress</option>
-        <option>Blocked</option>
-        <option>Resolved</option>
-      </select>
-      <input id="filterAssignee" placeholder="assignee (opt)" />
-      <select id="sortBy">
-        <option value="updatedAt" selected>updatedAt</option>
-        <option value="priority">priority</option>
-        <option value="dueDate">dueDate</option>
-      </select>
-      <select id="sortDir">
-        <option value="desc" selected>desc</option>
-        <option value="asc">asc</option>
-      </select>
-      <button id="refreshItemsBtn" type="button">Refresh</button>
+  <section class="card" style="margin-top:16px;" aria-label="Work Items">
+    <div class="row" style="justify-content:space-between;">
+      <div class="label">Work Items</div>
+      <div class="row" role="group" aria-label="Filters and sorting">
+        <input id="filterService" placeholder="service (opt)" />
+        <select id="filterStatus" title="status (opt)">
+          <option value="">status…</option>
+          <option>Open</option>
+          <option>InProgress</option>
+          <option>Blocked</option>
+          <option>Resolved</option>
+        </select>
+        <input id="filterAssignee" placeholder="assignee (opt)" />
+        <select id="sortBy" title="sort by">
+          <option value="updatedAt" selected>updatedAt</option>
+          <option value="priority">priority</option>
+          <option value="dueDate">dueDate</option>
+        </select>
+        <select id="sortDir" title="sort direction">
+          <option value="desc" selected>desc</option>
+          <option value="asc">asc</option>
+        </select>
+        <button id="refreshItemsBtn" type="button">Refresh</button>
+      </div>
     </div>
-  </div>
+
+    <!-- Presets row separated for better layout -->
+    <div class="row" style="margin-top:6px;">
+      <span class="muted">Presets:</span>
+      <button type="button" class="presetBtn" data-service="api-gateway">api-gateway</button>
+      <button type="button" class="presetBtn" data-service="billing">billing</button>
+      <button type="button" class="presetBtn" data-service="web">web</button>
+      <button type="button" class="presetBtn" data-service="">All</button>
+    </div>
 
     <!-- Create Work Item -->
-  <div class="card" style="margin-top:10px; background:#fafafa;">
-    <div class="row" style="flex-wrap:wrap; gap:8px;">
-      <input id="newTitle"      placeholder="Title *"           style="min-width:240px;" />
-      <input id="newService"    placeholder="Service *"         />
-      <select id="newPriority" title="Priority">
-        <option>Low</option>
-        <option>Medium</option>
-        <option selected>High</option>
-        <option>P0</option>
-      </select>
-      <input id="newDueDate"    type="date" title="Due date (optional)" />
-      <input id="newComponent"  placeholder="Component (opt)"   />
-      <input id="newAssignee"   placeholder="Assignee (opt)"    />
-      <input id="newLabels"     placeholder="labels (comma-separated, opt)" style="min-width:240px;" />
-      <button id="createBtn" type="button">Create</button>
+    <div class="card" style="margin-top:10px; background:#fafafa;">
+      <div class="row" style="flex-wrap:wrap; gap:8px;">
+        <input id="newTitle"      placeholder="Title *"           style="min-width:240px;" />
+        <input id="newService"    placeholder="Service *"         />
+        <select id="newPriority" title="Priority">
+          <option>Low</option>
+          <option>Medium</option>
+          <option selected>High</option>
+          <option>P0</option>
+        </select>
+        <input id="newDueDate"    type="date" title="Due date (optional)" />
+        <input id="newComponent"  placeholder="Component (opt)"   />
+        <input id="newAssignee"   placeholder="Assignee (opt)"    />
+        <input id="newLabels"     placeholder="labels (comma-separated, opt)" style="min-width:240px;" />
+        <button id="createBtn" type="button">Create</button>
+      </div>
+      <div class="muted" style="margin-top:6px;">Fields marked * are required.</div>
     </div>
-    <div class="muted" style="margin-top:6px;">Fields marked * are required.</div>
+
+    <div style="overflow:auto; margin-top:10px;">
+      <table id="itemsTable" style="width:100%; border-collapse:collapse;">
+        <caption class="sr-only">Work items list</caption>
+        <thead>
+          <tr>
+            <th scope="col" style="text-align:left; border-bottom:1px solid #e5e7eb; padding:6px;">Title</th>
+            <th scope="col" style="text-align:left; border-bottom:1px solid #e5e7eb; padding:6px;">Service</th>
+            <th scope="col" style="text-align:left; border-bottom:1px solid #e5e7eb; padding:6px;">Priority</th>
+            <th scope="col" style="text-align:left; border-bottom:1px solid #e5e7eb; padding:6px;">Status</th>
+            <th scope="col" style="text-align:left; border-bottom:1px solid #e5e7eb; padding:6px;">Due</th>
+            <th scope="col" style="text-align:left; border-bottom:1px solid #e5e7eb; padding:6px;">Assignee</th>
+            <th scope="col" style="text-align:left; border-bottom:1px solid #e5e7eb; padding:6px;">Labels</th>
+            <th scope="col" style="text-align:left; border-bottom:1px solid #e5e7eb; padding:6px;">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="itemsBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Edit modal -->
+  <div id="editModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.4);">
+    <div style="max-width:640px; margin:8% auto; background:#fff; border-radius:12px; padding:16px; box-shadow:0 10px 30px rgba(0,0,0,.2);">
+      <h3 style="margin-top:0;">Edit Work Item</h3>
+      <div class="row" style="flex-wrap:wrap; gap:8px;">
+        <input id="editId" type="hidden" />
+        <input id="editTitle"      placeholder="Title"           style="min-width:240px;" />
+        <input id="editService"    placeholder="Service"         />
+        <select id="editPriority">
+          <option>Low</option><option>Medium</option><option>High</option><option>P0</option>
+        </select>
+        <select id="editStatus">
+          <option>Open</option><option>InProgress</option><option>Blocked</option><option>Resolved</option>
+        </select>
+        <input id="editDueDate"    type="date" title="Due date" />
+        <input id="editComponent"  placeholder="Component" />
+        <input id="editAssignee"   placeholder="Assignee" />
+        <input id="editLabels"     placeholder="labels comma-separated" style="min-width:240px;" />
+      </div>
+      <div style="margin-top:10px; display:flex; gap:8px; justify-content:flex-end;">
+        <button id="editCancelBtn" type="button">Cancel</button>
+        <button id="editSaveBtn"   type="button">Save</button>
+      </div>
+    </div>
   </div>
 
 
-  <div style="overflow:auto; margin-top:10px;">
-    <table id="itemsTable" style="width:100%; border-collapse:collapse;">
-      <thead>
-        <tr>
-          <th style="text-align:left; border-bottom:1px solid #e5e7eb; padding:6px;">Title</th>
-          <th style="text-align:left; border-bottom:1px solid #e5e7eb; padding:6px;">Service</th>
-          <th style="text-align:left; border-bottom:1px solid #e5e7eb; padding:6px;">Priority</th>
-          <th style="text-align:left; border-bottom:1px solid #e5e7eb; padding:6px;">Status</th>
-          <th style="text-align:left; border-bottom:1px solid #e5e7eb; padding:6px;">Due</th>
-          <th style="text-align:left; border-bottom:1px solid #e5e7eb; padding:6px;">Assignee</th>
-          <th style="text-align:left; border-bottom:1px solid #e5e7eb; padding:6px;">Labels</th>
-          <th style="text-align:left; border-bottom:1px solid #e5e7eb; padding:6px;">Actions</th>
-        </tr>
-      </thead>
-      <tbody id="itemsBody"></tbody>
-    </table>
-  </div>
-</section>
 
+<script>
+  const apiBase   = window.location.origin; // same origin as API
+  const apiKeyInput = document.getElementById('apiKey');
+  const daysSel     = document.getElementById('days');
+  const statusEl    = document.getElementById('status');
 
-  <script>
-    const apiBase = window.location.origin; // same origin as API
-    const apiKeyInput = document.getElementById('apiKey');
-    const daysSel = document.getElementById('days');
-    const statusEl = document.getElementById('status');
+  // Remember key locally (browser only)
+  const savedKey = localStorage.getItem('dg_api_key');
+  if (savedKey) apiKeyInput.value = savedKey;
 
-    // remember key locally (browser only)
-    const savedKey = localStorage.getItem('dg_api_key');
-    if (savedKey) apiKeyInput.value = savedKey;
+  let chart;
+  let timer = null;
 
-    let chart;
+  function setStatus(msg) { statusEl.textContent = msg; }
 
-    async function fetchJson(path) {
-      const res = await fetch(path, {
-        headers: { 'X-API-Key': apiKeyInput.value }
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`HTTP ${res.status}: ${text}`);
-      }
-      return res.json();
-    }
+  async function fetchJson(path) {
+    const res = await fetch(path, { headers: { 'X-API-Key': apiKeyInput.value } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+    return res.json();
+  }
 
-    function setStatus(msg) { statusEl.textContent = msg; }
+  // ===== Metrics & chart + items =====
 
-    async function loadAll() {
-      try {
-        setStatus('Loading…');
-        localStorage.setItem('dg_api_key', apiKeyInput.value);
+  async function loadAll() {
+    try {
+      setStatus('Loading…');
+      localStorage.setItem('dg_api_key', apiKeyInput.value);
 
-        // KPIs now
-        const metrics = await fetchJson(`${apiBase}/metrics`);
-        document.getElementById('kpiHealth').textContent  = (metrics.backlogHealthPct ?? 0).toFixed(1);
-        document.getElementById('kpiSla').textContent     = (metrics.slaBreachRatePct ?? 0).toFixed(1);
-        document.getElementById('kpiOverdue').textContent = metrics.overdueCount ?? 0;
-        document.getElementById('kpiRisk').textContent    = (metrics.risk?.avg ?? 0).toFixed(1);
+      // KPIs now
+      const metrics = await fetchJson(`${apiBase}/metrics`);
+      document.getElementById('kpiHealth').textContent  = (metrics.backlogHealthPct ?? 0).toFixed(1);
+      document.getElementById('kpiSla').textContent     = (metrics.slaBreachRatePct ?? 0).toFixed(1);
+      document.getElementById('kpiOverdue').textContent = metrics.overdueCount ?? 0;
+      document.getElementById('kpiRisk').textContent    = (metrics.risk?.avg ?? 0).toFixed(1);
 
-        // History
-        const days = daysSel.value;
-        const hist = await fetchJson(`${apiBase}/metrics/history?days=${days}`);
-        const labels = hist.points.map(p => new Date(p.capturedAtUtc).toLocaleDateString());
-        const data   = hist.points.map(p => p.riskAvg);
+      // History
+      const days = daysSel.value;
+      const hist = await fetchJson(`${apiBase}/metrics/history?days=${days}`);
+      const labels = (hist.points ?? []).map(p => new Date(p.capturedAtUtc).toLocaleDateString());
+      const data   = (hist.points ?? []).map(p => p.riskAvg);
 
-        const ctx = document.getElementById('riskChart').getContext('2d');
-        if (chart) chart.destroy();
-        chart = new Chart(ctx, {
-          type: 'line',
-          data: {
-            labels,
-            datasets: [{
-              label: 'Risk avg',
-              data,
-            }]
-          },
-          options: {
-            responsive: true,
-            plugins: { legend: { display: true } },
-            scales: {
-              y: { beginAtZero: true, suggestedMax: 100 }
-            }
-          }
-        });
-
-        setStatus(`Loaded ${hist.count} point(s).`);
-      } catch (err) {
-        console.error(err);
-        setStatus(err.message);
-        alert('Error: ' + err.message);
-      }
-    }
-
-    document.getElementById('loadBtn').addEventListener('click', loadAll);
-
-
-    async function downloadCsv() {
-        try {
-          setStatus('Preparing CSV…');
-          const days = daysSel.value;
-
-          // We need to include X-API-Key, so we fetch as a blob and trigger a download
-          const res = await fetch(`${apiBase}/metrics/history.csv?days=${days}`, {
-            headers: { 'X-API-Key': apiKeyInput.value }
-          });
-          if (!res.ok) {
-            const text = await res.text();
-            throw new Error(`HTTP ${res.status}: ${text}`);
-          }
-          const blob = await res.blob();
-          const url = window.URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `metrics-history-${days}d.csv`;
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          window.URL.revokeObjectURL(url);
-          setStatus('CSV downloaded.');
-        } catch (err) {
-          console.error(err);
-          setStatus(err.message);
-          alert('CSV error: ' + err.message);
+      const ctx = document.getElementById('riskChart').getContext('2d');
+      if (chart) chart.destroy();
+      chart = new Chart(ctx, {
+        type: 'line',
+        data: { labels, datasets: [{ label: 'Risk avg', data }] },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: true } },
+          scales: { y: { beginAtZero: true, suggestedMax: 100 } }
         }
-      }
+      });
 
-      document.getElementById('csvBtn').addEventListener('click', downloadCsv);
+      // Then items (kept as part of single refresh cycle)
+      await loadItems();
 
+      setStatus(`Loaded ${labels.length} point(s).`);
+    } catch (err) {
+      console.error(err);
+      setStatus(err.message);
+      alert('Error: ' + err.message);
+    }
+  }
 
-  // Build query string for /workitems from the filter inputs
+  // ===== Items list =====
+
   function buildItemsQuery() {
     const params = new URLSearchParams();
-    const service = document.getElementById('filterService').value.trim();
-    const status = document.getElementById('filterStatus').value.trim();
+    const service  = document.getElementById('filterService').value.trim();
+    const status   = document.getElementById('filterStatus').value.trim();
     const assignee = document.getElementById('filterAssignee').value.trim();
-    const sortBy = document.getElementById('sortBy').value;
-    const sortDir = document.getElementById('sortDir').value;
+    const sortBy   = document.getElementById('sortBy').value;
+    const sortDir  = document.getElementById('sortDir').value;
 
-    if (service) params.set('service', service);
-    if (status) params.set('status', status);       // enum string e.g., Open, Blocked
+    if (service)  params.set('service', service);
+    if (status)   params.set('status', status);
     if (assignee) params.set('assignee', assignee);
     params.set('page', '1');
     params.set('pageSize', '50');
@@ -255,10 +253,7 @@
       const res = await fetch(`${apiBase}/workitems?${qs}`, {
         headers: { 'X-API-Key': apiKeyInput.value }
       });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`HTTP ${res.status}: ${text}`);
-      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
       const data = await res.json(); // { page, pageSize, total, items: [...] }
       renderItems(data.items || []);
       setStatus(`Loaded ${data.items?.length ?? 0} of ${data.total ?? 0}.`);
@@ -276,24 +271,43 @@
     for (const it of items) {
       const tr = document.createElement('tr');
 
-      const tdTitle = td(htmlEscape(it.title));
-      const tdService = td(htmlEscape(it.service));
-      const tdPriority = td(htmlEscape(it.priority));
-      const tdStatus = td(htmlEscape(it.status));
-      const tdDue = td(it.dueDate ? htmlEscape(it.dueDate) : '—');
-      const tdAssignee = td(it.assignee ? htmlEscape(it.assignee) : '—');
-      const tdLabels = td((it.labels || []).join(', '));
+      const tdTitle    = td(it.title ?? '');
+      const tdService  = td(it.service ?? '');
+      const tdPriority = td(it.priority ?? '');
+      const tdStatus   = td(it.status ?? '');
+      const tdDue      = td(it.dueDate ? new Date(it.dueDate).toLocaleDateString() : '—');
+      const tdAssignee = td(it.assignee ?? '—');
+      const tdLabels   = td((it.labels || []).join(', '));
 
       const tdActions = document.createElement('td');
       tdActions.style.padding = '6px';
       tdActions.style.whiteSpace = 'nowrap';
 
-      const delBtn = document.createElement('button');
-      delBtn.textContent = 'Delete';
-      delBtn.onclick = () => confirmDelete(it.id, it.title);
-      delBtn.style.marginRight = '6px';
+      const editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.textContent = 'Edit';
+      editBtn.style.marginRight = '6px';
+      editBtn.onclick = () => openEdit(it);
+      tdActions.appendChild(editBtn);
 
-      // (Edit will come in the next step)
+      const resolveBtn = document.createElement('button');
+      resolveBtn.type = 'button';
+      resolveBtn.textContent = 'Mark Resolved';
+      resolveBtn.style.marginRight = '6px';
+      resolveBtn.onclick = () => quickPatch(it.id, { status: 'Resolved' });
+      tdActions.appendChild(resolveBtn);
+
+      const p0Btn = document.createElement('button');
+      p0Btn.type = 'button';
+      p0Btn.textContent = 'Bump → P0';
+      p0Btn.style.marginRight = '6px';
+      p0Btn.onclick = () => quickPatch(it.id, { priority: 'P0' });
+      tdActions.appendChild(p0Btn);
+
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.textContent = 'Delete';
+      delBtn.onclick = () => confirmDelete(it.id, it.title ?? '(untitled)');
       tdActions.appendChild(delBtn);
 
       tr.appendChild(tdTitle);
@@ -311,13 +325,8 @@
     function td(text) {
       const cell = document.createElement('td');
       cell.style.padding = '6px';
-      cell.textContent = text;
+      cell.textContent = text; // safe; no HTML injection
       return cell;
-    }
-    function htmlEscape(s) {
-      return String(s ?? '').replace(/[&<>"']/g, c => ({
-        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#039;'
-      }[c]));
     }
   }
 
@@ -336,8 +345,7 @@
         setStatus('Not found (already deleted).');
         await loadItems();
       } else {
-        const text = await res.text();
-        throw new Error(`HTTP ${res.status}: ${text}`);
+        throw new Error(`HTTP ${res.status}: ${await res.text()}`);
       }
     } catch (err) {
       console.error(err);
@@ -346,17 +354,112 @@
     }
   }
 
-  // Wire the refresh button
-  document.getElementById('refreshItemsBtn').addEventListener('click', loadItems);
+  // ===== Edit modal (top-level; not nested) =====
 
-  // OPTIONAL: also refresh items after metrics Load (so you see everything update)
-  const oldLoadAll = loadAll;
-  loadAll = async function() {
-    await oldLoadAll();
-    await loadItems();
-  };
+  function openEdit(it) {
+    document.getElementById('editId').value        = it.id;
+    document.getElementById('editTitle').value     = it.title ?? '';
+    document.getElementById('editService').value   = it.service ?? '';
+    document.getElementById('editPriority').value  = it.priority ?? 'Medium';
+    document.getElementById('editStatus').value    = it.status ?? 'Open';
+    document.getElementById('editDueDate').value   = it.dueDate ?? '';
+    document.getElementById('editComponent').value = it.component ?? '';
+    document.getElementById('editAssignee').value  = it.assignee ?? '';
+    document.getElementById('editLabels').value    = (it.labels ?? []).join(', ');
 
-async function createWorkItem() {
+    document.getElementById('editModal').style.display = 'block';
+    document.getElementById('editTitle').focus();
+  }
+
+  function closeEdit() {
+    document.getElementById('editModal').style.display = 'none';
+  }
+
+  async function saveEdit() {
+    try {
+      const id        = document.getElementById('editId').value;
+      const title     = document.getElementById('editTitle').value.trim();
+      const service   = document.getElementById('editService').value.trim();
+      const priority  = document.getElementById('editPriority').value;
+      const status    = document.getElementById('editStatus').value;
+      const dueDate   = document.getElementById('editDueDate').value; // yyyy-MM-dd or ""
+      const component = document.getElementById('editComponent').value.trim();
+      const assignee  = document.getElementById('editAssignee').value.trim();
+      const labelsStr = document.getElementById('editLabels').value.trim();
+
+      const body = {};
+      if (title)     body.title     = title;
+      if (service)   body.service   = service;
+      if (priority)  body.priority  = priority;
+      if (status)    body.status    = status;
+      if (dueDate)   body.dueDate   = dueDate;
+      if (component) body.component = component;
+      if (assignee)  body.assignee  = assignee;
+      if (labelsStr) body.labels    = labelsStr.split(',').map(s => s.trim()).filter(Boolean);
+
+      setStatus('Saving…');
+      const res = await fetch(`${apiBase}/workitems/${id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': apiKeyInput.value
+        },
+        body: JSON.stringify(body)
+      });
+
+      if (res.status === 200) {
+        closeEdit();
+        await loadItems();
+        setStatus('Saved.');
+      } else if (res.status === 400) {
+        alert('Validation error:\n' + (await res.text()));
+        setStatus('Validation error.');
+      } else if (res.status === 404) {
+        alert('Item not found (it may have been deleted).');
+        setStatus('Not found.');
+      } else {
+        throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Save error: ' + err.message);
+      setStatus(err.message);
+    }
+  }
+
+  async function quickPatch(id, body) {
+    try {
+      setStatus('Updating…');
+      const res = await fetch(`${apiBase}/workitems/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKeyInput.value },
+        body: JSON.stringify(body)
+      });
+      if (res.status === 200) {
+        await loadItems();
+        setStatus('Updated.');
+      } else {
+        alert(`Patch error (${res.status}):\n` + (await res.text()));
+        setStatus('Patch error.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Patch error: ' + err.message);
+      setStatus(err.message);
+    }
+  }
+
+  // Edit modal wiring
+  document.getElementById('editSaveBtn').addEventListener('click', saveEdit);
+  document.getElementById('editCancelBtn').addEventListener('click', closeEdit);
+  document.getElementById('editModal').addEventListener('click', (e) => {
+    if (e.target.id === 'editModal') closeEdit();
+  });
+  window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeEdit(); });
+
+  // ===== Create item =====
+
+  async function createWorkItem() {
     try {
       const title     = document.getElementById('newTitle').value.trim();
       const service   = document.getElementById('newService').value.trim();
@@ -366,24 +469,15 @@ async function createWorkItem() {
       const assignee  = document.getElementById('newAssignee').value.trim();
       const labelsStr = document.getElementById('newLabels').value.trim();
 
-      // basic client validation (server will also validate)
       if (!title)   { alert('Title is required.');   return; }
       if (!service) { alert('Service is required.'); return; }
 
-      const labels = labelsStr
-        ? labelsStr.split(',').map(s => s.trim()).filter(Boolean)
-        : [];
-
-      // build request body (omit optional empties)
-      const body = {
-        title, service, priority
-      };
-      if (dueDate)   body.dueDate   = dueDate;   // API expects yyyy-MM-dd (DateOnly)
+      const body = { title, service, priority };
+      if (dueDate)   body.dueDate   = dueDate;
       if (component) body.component = component;
       if (assignee)  body.assignee  = assignee;
-      if (labels.length) body.labels = labels;
+      if (labelsStr) body.labels    = labelsStr.split(',').map(s => s.trim()).filter(Boolean);
 
-      // POST
       setStatus('Creating…');
       const btn = document.getElementById('createBtn');
       btn.disabled = true;
@@ -397,23 +491,18 @@ async function createWorkItem() {
         body: JSON.stringify(body)
       });
 
-      // Handle typical responses
       if (res.status === 201) {
-        // clear form a bit (keep service/assignee if you like)
         document.getElementById('newTitle').value = '';
         document.getElementById('newDueDate').value = '';
         document.getElementById('newComponent').value = '';
         document.getElementById('newLabels').value = '';
-
         await loadItems();
         setStatus('Created.');
       } else if (res.status === 400) {
-        const text = await res.text();
         setStatus('Validation error.');
-        alert('Validation error:\n' + text);
+        alert('Validation error:\n' + (await res.text()));
       } else {
-        const text = await res.text();
-        throw new Error(`HTTP ${res.status}: ${text}`);
+        throw new Error(`HTTP ${res.status}: ${await res.text()}`);
       }
     } catch (err) {
       console.error(err);
@@ -424,10 +513,83 @@ async function createWorkItem() {
     }
   }
 
-  // wire up the button
+  // ===== CSV download =====
+
+  async function downloadCsv() {
+    try {
+      setStatus('Preparing CSV…');
+      const days = daysSel.value;
+      const res = await fetch(`${apiBase}/metrics/history.csv?days=${days}`, {
+        headers: { 'X-API-Key': apiKeyInput.value }
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `metrics-history-${days}d.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      setStatus('CSV downloaded.');
+    } catch (err) {
+      console.error(err);
+      setStatus(err.message);
+      alert('CSV error: ' + err.message);
+    }
+  }
+
+  // ===== Event wiring =====
+
+  document.getElementById('loadBtn').addEventListener('click', loadAll);
+  document.getElementById('refreshItemsBtn').addEventListener('click', loadItems);
+  document.getElementById('csvBtn').addEventListener('click', downloadCsv);
   document.getElementById('createBtn').addEventListener('click', createWorkItem);
 
+  document.getElementById('snapBtn').addEventListener('click', async () => {
+  try {
+    setStatus('Capturing snapshot…');
+    const res = await fetch(`${apiBase}/dev/metrics/snapshot`, {
+      method: 'POST',
+      headers: { 'X-API-Key': apiKeyInput.value }
+    });
+    if (!res.ok) {
+      const t = await res.text();
+      throw new Error(`HTTP ${res.status}: ${t}`);
+    }
+    await loadAll();      // refresh KPIs
+    await loadItems();    // refresh table (optional)
+    setStatus('Snapshot captured.');
+  } catch (err) {
+    console.error(err);
+    setStatus(err.message);
+    alert('Snapshot error: ' + err.message);
+  }
+});
 
-  </script>
+
+  // Days selector triggers reload
+  daysSel.addEventListener('change', loadAll);
+
+  // Presets
+  document.querySelectorAll('.presetBtn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.getElementById('filterService').value = btn.dataset.service || '';
+      loadItems();
+    });
+  });
+
+  // Auto-refresh: call unified loader once per tick
+  document.getElementById('autoRefresh').addEventListener('change', (e) => {
+    if (e.target.checked) {
+      timer = setInterval(async () => { try { await loadAll(); } catch {} }, 60000);
+    } else {
+      if (timer) clearInterval(timer);
+      timer = null;
+    }
+  });
+</script>
+
 </body>
 </html>
